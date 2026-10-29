@@ -1,0 +1,52 @@
+{
+  "name": "dsh-keepalive",
+  "version": "0.1.0",
+  "description": "DSH 保活守护（dsh-keepalive）：让 DeepSeek Harness 桌面版里的 AI 角色一直在线。心跳检查、卡死/掉线自动重启并发 QQ 通知、维护模式、插件配置被重置时自动恢复、每日备份、C 盘清理、登录 cookie 清理。看门狗跑在 DSH 外面（Windows 计划任务），DSH 挂了它也还在。",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "dsh",
+    "watchdog",
+    "keepalive",
+    "backup",
+    "ai-companion"
+  ],
+  "main": "lib/host.js",
+  "exports": {
+    ".": "./lib/host.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "dsh-keepalive": "bin/dsh-keepalive.mjs"
+  },
+  "files": [
+    "lib",
+    "bin",
+    "scripts",
+    "test",
+    "cordis.patch.yml",
+    "keepalive.config.example.json",
+    "安装守护.cmd",
+    "卸载守护.cmd",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/run-tests.mjs"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "os": [
+    "win32"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

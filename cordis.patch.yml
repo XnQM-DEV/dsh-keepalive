@@ -1,0 +1,7 @@
+# DSH 保活守护（dsh-keepalive）
+# 这一行把插件的「宿主半边」挂进 profile：它在 DSH 里面每分钟写一次心跳文件，
+# 记下哪一轮对话很久没动静，并提供 /dsh-keepalive/status 状态接口。
+# 真正的看门狗（重启、备份、清理）跑在 DSH 外面的计划任务里，见 README。
+- insert:
+    - id: keepalive
+      name: 'dsh-keepalive'

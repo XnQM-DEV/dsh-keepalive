@@ -1,0 +1,140 @@
+{
+  "//": "dsh-keepalive 配置文件模板。默认放在 C:\\Users\\你的用户名\\.dsh\\keepalive.config.json。路径里可以用 ${DSH_HOME}（默认 C:\\Users\\你\\.dsh）、${DATA_DIR}（下面的 dataDir）、${APPDATA}、${LOCALAPPDATA}、${USERPROFILE}、${DESKTOP}、${TEMP}、${env:任意环境变量}。以 // 开头的键是说明，程序会忽略。不要把令牌、密码写进这里，QQ 通知请用 fromFile 从别的文件里读。",
+
+  "dataDir": "${DSH_HOME}/keepalive",
+  "nodePath": "${DSH_HOME}/dsh-runtimes/dsh-primary-runtime/dependencies/node/bin/node.exe",
+  "backupDir": "${DATA_DIR}/backups",
+
+  "dsh": {
+    "//": "exe 必填：DSH 主程序（DeepSeek Harness.exe）的完整路径。rescueKillNodePattern：急救时顺便结束命令行里含这段文字的 node.exe（留空 = 不结束）。",
+    "exe": "",
+    "processNames": ["DeepSeek Harness.exe"],
+    "extraPorts": [],
+    "profileDir": "${DSH_HOME}/profiles/desktop",
+    "pluginsDir": "${DSH_HOME}/plugins",
+    "cookieStore": "${APPDATA}/@deepseek-ai/dsh-desktop/Network/Cookies",
+    "rescueKillNodePattern": ""
+  },
+
+  "maintenance": {
+    "//": "维护模式：标记文件存在、并且不超过 maxMinutes 分钟时，看门狗不重启 DSH、不改插件配置。",
+    "flagFile": "${DATA_DIR}/maintenance.flag",
+    "maxMinutes": 120
+  },
+
+  "heartbeat": {
+    "//": "hungThreshold：进程在但页面不应答，连续几次（每次 5 分钟）才重启。stuckTurnAction：一轮对话很久没动静时 notify = 只通知，restart = 重启，off = 不管。",
+    "enabled": true,
+    "hungThreshold": 3,
+    "notify": true,
+    "stuckTurnAction": "notify"
+  },
+
+  "host": {
+    "//": "DSH 里面那一半的设置：多久写一次心跳文件、一轮对话多少分钟没动静算卡住。",
+    "pulseSeconds": 60,
+    "stuckTurnMinutes": 45
+  },
+
+  "restart": {
+    "//": "cooldownMinutes：两次重启至少隔几分钟。maxPerHour：一小时最多自动重启几次，超过就停手并通知。selfcheck：重启后运行的自检程序，readFile + summaryPattern 用来从它的输出文件里取一行小结放进汇报。",
+    "enabled": true,
+    "cooldownMinutes": 3,
+    "maxPerHour": 4,
+    "startTimeoutSeconds": 60,
+    "settleSeconds": 20,
+    "clearAuthCookies": true,
+    "notify": true,
+    "reportFile": "${DATA_DIR}/restart-report.txt",
+    "selfcheck": {
+      "enabled": false,
+      "command": "",
+      "args": [],
+      "cwd": "",
+      "timeoutSeconds": 180,
+      "readFile": "",
+      "summaryPattern": "小结"
+    }
+  },
+
+  "services": [],
+
+  "patchGuard": {
+    "//": "插件配置守护：cordis.patch.yml 被重置成空壳时，从同目录下最新的健康备份（cordis.patch.yml.bak-* 等）恢复。minEntries：少于这么多个 name: 条目就算坏了。确认没问题再把 enabled 改成 true。",
+    "enabled": false,
+    "file": "${DSH_HOME}/profiles/desktop/cordis.patch.yml",
+    "minEntries": 1,
+    "validateYaml": true,
+    "notify": false
+  },
+
+  "backup": {
+    "//": "每个备份任务复制到 dest\\年月日\\，只保留最近 keepDays 天（只会删 8 位数字命名的子文件夹）。item 的写法见 README。",
+    "jobs": {}
+  },
+
+  "trim": {
+    "//": "磁盘清理：只删 jobs 里列出的文件夹中超过 olderThanDays 天的文件。DSH 的附件库、会话、存储、profile、插件目录永远受保护，protect 里还可以再加。",
+    "protect": [],
+    "jobs": [
+      { "name": "临时文件", "path": "${TEMP}", "olderThanDays": 14, "enabled": false }
+    ],
+    "reportFreeOn": ["C:"],
+    "notify": false
+  },
+
+  "notify": {
+    "channels": [
+      {
+        "//": "QQ 通知（OneBot v11：NapCat / SnowLuma / LLOneBot 都行）。推荐用 fromFile：发送时从别的 JSON 文件里读地址、令牌、QQ 号，这里就不用写任何秘密。也可以直接填 url / userId / groupId。",
+        "type": "onebot",
+        "enabled": false,
+        "url": "",
+        "token": "",
+        "userId": "",
+        "groupId": "",
+        "fromFile": {
+          "path": "${DSH_HOME}/qq-bridge-config.json",
+          "urlField": "NapCat",
+          "tokenField": "令牌",
+          "userIdField": "私聊QQ"
+        },
+        "tokenIn": "query"
+      },
+      {
+        "//": "通用 webhook：把 {\"text\": \"消息\"} POST 到 url。bodyTemplate 可以改成别的格式，{{text}} 会被换成消息。",
+        "type": "webhook",
+        "enabled": false,
+        "url": "",
+        "bodyTemplate": { "text": "{{text}}" }
+      }
+    ]
+  },
+
+  "messages": {
+    "//": "想换成角色自己的口吻就在这里改，可用的键：down hung back stuck restartReport restartFailed gaveUp patchRestored patchDegraded backupFailed trimDone test。{count} {time} {reason} 之类的占位符见 README。"
+  },
+
+  "tasks": [
+    { "id": "tick", "name": "DSHKeepalive-Tick", "run": ["tick"], "everyMinutes": 5, "atLogon": true, "logonDelaySeconds": 60, "elevated": false, "enabled": true, "timeLimitMinutes": 10 },
+    { "id": "restart", "name": "DSHKeepalive-Restart", "run": ["restart"], "onDemand": true, "elevated": true, "enabled": true, "timeLimitMinutes": 15 },
+    { "id": "trim", "name": "DSHKeepalive-Trim", "run": ["trim"], "dailyAt": "05:10", "elevated": false, "enabled": false, "timeLimitMinutes": 30 }
+  ],
+
+  "legacy": {
+    "//": "以前自己搭的守护计划任务的名字。doctor / install 会提醒它们和新任务重复；install --disable-legacy 会停用它们（不删除），uninstall 时恢复。",
+    "tasks": []
+  },
+
+  "shortcuts": {
+    "//": "install 时生成的双击小工具放在哪个文件夹。已有同名文件、而且不是本插件生成的，不会被覆盖。",
+    "enabled": true,
+    "dir": "${DATA_DIR}",
+    "names": {
+      "maintenanceOn": "进入维护模式.cmd",
+      "maintenanceOff": "退出维护模式.cmd",
+      "rescue": "DSH急救.cmd",
+      "status": "查看守护状态.cmd"
+    }
+  }
+}

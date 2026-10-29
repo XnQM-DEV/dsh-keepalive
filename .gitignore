@@ -1,0 +1,19 @@
+# 本机配置（含路径、QQ、令牌位置）——不进仓库
+keepalive.config.json
+keepalive.config.local.json
+
+# 只在本地看的说明（含本机绝对路径）
+发布指南.md
+
+# 依赖与产物
+node_modules/
+*.tgz
+*.log
+runtime/
+backups/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
