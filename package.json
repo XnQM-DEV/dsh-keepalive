@@ -1,6 +1,6 @@
 {
   "name": "dsh-keepalive",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DSH 保活守护（dsh-keepalive）：让 DeepSeek Harness 桌面版里的 AI 角色一直在线。心跳检查、卡死/掉线自动重启并发 QQ 通知、维护模式、插件配置被重置时自动恢复、每日备份、C 盘清理、登录 cookie 清理。看门狗跑在 DSH 外面（Windows 计划任务），DSH 挂了它也还在。",
   "license": "MIT",
   "type": "module",

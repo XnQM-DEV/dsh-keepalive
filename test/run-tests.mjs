@@ -35,6 +35,8 @@ import { notify } from '../lib/notify.mjs'
 import { countEntries, patchGuard } from '../lib/patch-guard.mjs'
 import { rescue, restart } from '../lib/restart.mjs'
 import { MARK } from '../lib/shortcuts.mjs'
+import { findAncestor } from '../lib/system.mjs'
+import { restartRequestFile } from '../lib/heartbeat.mjs'
 import { buildTaskXml, install, uninstall, writeTaskXml } from '../lib/tasks.mjs'
 import { runTrim } from '../lib/trim.mjs'
 
@@ -112,7 +114,12 @@ function fakeSys() {
     tasks: new Map(),
     psOk: true,
     admin: false,
+    inside: false, // true = pretend this command was started from inside DSH
     sleep: async () => {},
+    insideProcess() {
+      s.calls.push('where')
+      return s.inside ? { inside: true, ancestor: { pid: 777, name: 'DeepSeek Harness.exe' } } : { inside: s.inside }
+    },
     async listProcesses() {
       s.calls.push('list')
       return s.psOk ? { ok: true, procs: s.procs, listen: s.listen } : { ok: false, procs: [], listen: [], error: 'boom' }
@@ -428,6 +435,105 @@ await test('急救：退出维护模式、结束 DSH、交给重启任务', asyn
   assert.equal(existsSync(cfg.maintenance.flagFile), false)
   assert.ok(sys.calls.includes('kill'))
   assert.ok(sys.calls.includes('run:DSHKeepalive-Restart'))
+  const note = JSON.parse(readFileSync(restartRequestFile(cfg), 'utf8'))
+  assert.equal(note.force, true, '急救交给任务时要求跳过冷却和每小时上限')
+  assert.equal(note.rescue, true)
+})
+
+await test('急救：交给任务的那次重启不受冷却 / 每小时上限限制（不会关了 DSH 又不重启）', async () => {
+  const cfg = freshCfg({ dsh: { rescueKillNodePattern: 'deepseek' } })
+  const sys = fakeSys()
+  sys.tasks.set('DSHKeepalive-Restart', { enabled: true })
+  mkdirSync(join(cfg.dataDir, 'state'), { recursive: true })
+  const t = Date.now()
+  writeFileSync(join(cfg.dataDir, 'state', 'restart-history.json'), JSON.stringify({ times: [t - 50 * 60000, t - 40 * 60000, t - 30 * 60000, t - 60000] }))
+  take()
+  assert.equal((await rescue(cfg, makeEnv(sys))).result, 'task')
+  // the scheduled task now runs `restart` with no arguments, outside DSH
+  const r = await restart(cfg, makeEnv(sys))
+  assert.equal(r.result, 'restarted', '带着急救的「强制」标记，冷却中、已到上限也照样重启')
+  assert.ok(sys.calls.filter((c) => c === 'killnode').length >= 1, '交给任务的急救也会顺手清残留 node 进程')
+  take()
+})
+
+await test('在 DSH 里面运行 restart：交给计划任务，自己绝不结束 DSH', async () => {
+  const cfg = freshCfg()
+  const sys = fakeSys()
+  sys.inside = true
+  sys.tasks.set('DSHKeepalive-Restart', { enabled: true })
+  const r = await restart(cfg, makeEnv(sys), { reason: 'manual' })
+  assert.equal(r.result, 'handed-off')
+  assert.ok(!sys.calls.includes('kill'), '不能自己结束 DSH')
+  assert.ok(!sys.calls.includes('start'))
+  assert.ok(sys.calls.includes('run:DSHKeepalive-Restart'))
+  const note = JSON.parse(readFileSync(restartRequestFile(cfg), 'utf8'))
+  assert.equal(note.reason, 'manual')
+  assert.equal(note.force, false, '没加 --force 就照常受冷却和上限约束')
+  assert.ok(!existsSync(join(cfg.dataDir, 'state', 'restart-history.json')), '交出去的这次不计入重启次数')
+})
+
+await test('在 DSH 里面运行 restart，但重启任务没装：什么都不做，返回拒绝', async () => {
+  const cfg = freshCfg()
+  const sys = fakeSys()
+  sys.inside = true
+  const r = await restart(cfg, makeEnv(sys))
+  assert.equal(r.result, 'refused-inside-dsh')
+  assert.ok(!sys.calls.includes('kill'))
+  assert.ok(!sys.calls.includes('start'))
+})
+
+await test('在 DSH 里面运行 rescue：不自己动手，整个交给计划任务；任务带强制标记', async () => {
+  const cfg = freshCfg()
+  enterMaintenance(cfg)
+  const sys = fakeSys()
+  sys.inside = true
+  sys.tasks.set('DSHKeepalive-Restart', { enabled: true })
+  const r = await rescue(cfg, makeEnv(sys))
+  assert.equal(r.result, 'task')
+  assert.ok(!sys.calls.includes('kill'))
+  assert.ok(!sys.calls.includes('killnode'))
+  assert.equal(existsSync(cfg.maintenance.flagFile), false, '维护模式照样先退出')
+  const note = JSON.parse(readFileSync(restartRequestFile(cfg), 'utf8'))
+  assert.deepEqual([note.reason, note.force, note.rescue], ['rescue', true, true])
+  const sys2 = fakeSys()
+  sys2.inside = true
+  assert.equal((await rescue(freshCfg(), makeEnv(sys2))).result, 'refused-inside-dsh', '没有任务可交就不动手')
+  assert.ok(!sys2.calls.includes('kill'))
+})
+
+await test('读不到进程关系时按「在外面」处理（计划任务自己的重启不会被卡住）', async () => {
+  const cfg = freshCfg()
+  const sys = fakeSys()
+  sys.inside = null
+  assert.equal((await restart(cfg, makeEnv(sys))).result, 'restarted')
+  take()
+})
+
+await test('进程树：认出上级里的 DSH；PID 被复用的「假父进程」不算；有环也不会死循环', async () => {
+  const want = new Set(['deepseek harness'])
+  const list = [
+    { i: 10, p: 1, n: 'DeepSeek Harness.exe', c: 100 },
+    { i: 20, p: 10, n: 'node.exe', c: 200 },
+    { i: 30, p: 20, n: 'bash.exe', c: 300 },
+    { i: 40, p: 30, n: 'node.exe', c: 400 },
+  ]
+  assert.deepEqual(findAncestor(list, 40, want), { inside: true, ancestor: { pid: 10, name: 'DeepSeek Harness.exe' } })
+  const task = [
+    { i: 5, p: 4, n: 'svchost.exe', c: 50 },
+    { i: 6, p: 5, n: 'wscript.exe', c: 60 },
+    { i: 7, p: 6, n: 'node.exe', c: 70 },
+  ]
+  assert.deepEqual(findAncestor(task, 7, want), { inside: false }, '计划任务启动的不算')
+  const reused = [
+    { i: 10, p: 1, n: 'DeepSeek Harness.exe', c: 900 }, // started AFTER the child: PID 10 was reused
+    { i: 20, p: 10, n: 'node.exe', c: 200 },
+  ]
+  assert.deepEqual(findAncestor(reused, 20, want), { inside: false })
+  const loop = [
+    { i: 1, p: 2, n: 'a.exe', c: 0 },
+    { i: 2, p: 1, n: 'b.exe', c: 0 },
+  ]
+  assert.deepEqual(findAncestor(loop, 1, want), { inside: false })
 })
 
 await test('插件配置守护：用最新的「健康」备份恢复，跳过语法坏的，坏文件先存一份', async () => {

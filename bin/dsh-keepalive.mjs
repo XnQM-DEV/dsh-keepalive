@@ -173,11 +173,12 @@ async function main() {
     }
     case 'restart': {
       const r = await restart(cfg, env, { force: !!opts.force, reason: opts.reason || '' })
-      return r.result === 'failed' ? 1 : 0
+      return r.result === 'failed' || r.result === 'refused-inside-dsh' ? 1 : 0
     }
-    case 'rescue':
-      await rescue(cfg, env)
-      return 0
+    case 'rescue': {
+      const r = await rescue(cfg, env)
+      return r && r.result === 'refused-inside-dsh' ? 1 : 0
+    }
     case 'patch-guard': {
       const r = await patchGuard(cfg, env)
       if (interactive && r.result === 'ok') log(`插件配置正常（${r.entries} 项）`)
